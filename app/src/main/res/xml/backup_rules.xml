@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Include Room database and preferences if needed, or exclude sensitive keys -->
+    <include domain="database" path="offline_mesh_tracker.db" />
+    <include domain="sharedpref" path="." />
+</full-backup-content>

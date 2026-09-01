@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Offline Mesh Tracker</string>
+    <string name="app_tagline">Zero-Data SMS Network</string>
+    <string name="channel_name">Mesh Location Responder</string>
+    <string name="channel_description">Handles incoming offline family ping verification</string>
+    <string name="service_notification_title">Processing Location Request</string>
+    <string name="service_notification_desc">Responding to authorized family mesh query</string>
+</resources>
