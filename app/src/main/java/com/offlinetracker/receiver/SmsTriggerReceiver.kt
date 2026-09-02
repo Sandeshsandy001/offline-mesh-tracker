@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
+import android.telephony.SubscriptionManager
 import androidx.core.content.ContextCompat
 import com.offlinetracker.data.local.LocationLogEntity
 import com.offlinetracker.data.local.OfflineMeshDatabase
@@ -36,7 +37,9 @@ class SmsTriggerReceiver : BroadcastReceiver() {
                 for (sms in messages) {
                     val rawSender = sms.originatingAddress ?: continue
                     val body = sms.messageBody ?: continue
-                    val subId = sms.subscriptionId
+                    val subId = intent.getIntExtra(SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX, -1).let { id ->
+                        if (id != -1) id else intent.getIntExtra("subscription", -1)
+                    }
 
                     val parsed = MeshProtocolParser.parse(body) ?: continue
 

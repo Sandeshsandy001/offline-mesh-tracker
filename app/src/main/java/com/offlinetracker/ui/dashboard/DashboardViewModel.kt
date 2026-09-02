@@ -60,6 +60,12 @@ class DashboardViewModel(private val database: OfflineMeshDatabase) : ViewModel(
             } catch (e: Exception) {
                 _locatingDevices.update { it - target.deviceId }
             }
+
+            // Automatically reset locating state after 30 seconds if no response
+            launch {
+                kotlinx.coroutines.delay(30000L)
+                _locatingDevices.update { it - target.deviceId }
+            }
         }
     }
 
