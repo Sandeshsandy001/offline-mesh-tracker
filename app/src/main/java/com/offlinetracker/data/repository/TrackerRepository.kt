@@ -62,6 +62,11 @@ class TrackerRepository(private val database: OfflineMeshDatabase) {
         setConfig(KEY_AUTH_KEY, authKey.trim())
         setConfig(KEY_INITIAL_SETUP_DONE, "true")
 
+        val oldLocal = getLocalDevice()
+        if (oldLocal != null && oldLocal.deviceId != localDeviceId.trim().uppercase()) {
+            deleteDeviceById(oldLocal.deviceId)
+        }
+
         val localDevice = FamilyDeviceEntity(
             deviceId = localDeviceId.trim().uppercase(),
             displayName = localDisplayName.trim(),

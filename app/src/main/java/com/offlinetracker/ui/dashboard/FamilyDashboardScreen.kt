@@ -96,7 +96,8 @@ fun FamilyDashboardScreen(
                     FamilyMemberCard(
                         member = member,
                         onLocateClick = { viewModel.sendLocationPing(context, member) },
-                        onMapClick = { viewModel.openInGoogleMaps(context, member) }
+                        onMapClick = { viewModel.openInGoogleMaps(context, member) },
+                        onDeleteClick = { viewModel.deleteFamilyDevice(member.deviceId) }
                     )
                 }
             }
@@ -118,9 +119,34 @@ fun FamilyDashboardScreen(
 fun FamilyMemberCard(
     member: FamilyMemberUiModel,
     onLocateClick: () -> Unit,
-    onMapClick: () -> Unit
+    onMapClick: () -> Unit,
+    onDeleteClick: () -> Unit
 ) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val hasLocation = member.lastLatitude != null && member.lastLongitude != null
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Device") },
+            text = { Text("Are you sure you want to remove ${member.displayName} (${member.deviceId}) from your trusted network?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDeleteClick()
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -183,6 +209,21 @@ fun FamilyMemberCard(
                             "$bat%",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (bat < 20) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+
+                if (!member.isLocalDevice) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    IconButton(
+                        onClick = { showDeleteConfirm = true },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete Device",
+                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }

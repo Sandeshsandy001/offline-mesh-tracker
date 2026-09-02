@@ -23,11 +23,18 @@ import com.offlinetracker.ui.theme.OfflineTrackerTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+enum class AppScreen {
+    Loading,
+    Onboarding,
+    Dashboard,
+    Settings
+}
+
 class MainActivity : ComponentActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
+    ) { _ ->
         // Handle permission results if needed
     }
 
@@ -43,31 +50,41 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    var isSetupDone by remember { mutableStateOf<Boolean?>(null) }
+                    var currentScreen by remember { mutableStateOf(AppScreen.Loading) }
 
                     LaunchedEffect(Unit) {
                         val done = withContext(Dispatchers.IO) {
                             db.appConfigDao().get("INITIAL_SETUP_DONE") == "true"
                         }
-                        isSetupDone = done
+                        currentScreen = if (done) AppScreen.Dashboard else AppScreen.Onboarding
                     }
 
-                    when (isSetupDone) {
-                        null -> {
+                    when (currentScreen) {
+                        AppScreen.Loading -> {
                             // Loading state
                         }
-                        false -> {
+                        AppScreen.Onboarding -> {
                             val onboardingViewModel = remember { OnboardingViewModel(db) }
                             OnboardingScreen(
                                 viewModel = onboardingViewModel,
-                                onSetupComplete = { isSetupDone = true }
+                                isSettingsMode = false,
+                                onSetupComplete = { currentScreen = AppScreen.Dashboard }
                             )
                         }
-                        true -> {
+                        AppScreen.Dashboard -> {
                             val dashboardViewModel = remember { DashboardViewModel(db) }
                             FamilyDashboardScreen(
                                 viewModel = dashboardViewModel,
-                                onNavigateToSettings = { isSetupDone = false }
+                                onNavigateToSettings = { currentScreen = AppScreen.Settings }
+                            )
+                        }
+                        AppScreen.Settings -> {
+                            val settingsViewModel = remember { OnboardingViewModel(db) }
+                            OnboardingScreen(
+                                viewModel = settingsViewModel,
+                                isSettingsMode = true,
+                                onSetupComplete = { currentScreen = AppScreen.Dashboard },
+                                onCancel = { currentScreen = AppScreen.Dashboard }
                             )
                         }
                     }

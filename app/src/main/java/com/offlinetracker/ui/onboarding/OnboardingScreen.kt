@@ -12,6 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -20,15 +22,43 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun OnboardingScreen(
     viewModel: OnboardingViewModel,
-    onSetupComplete: () -> Unit
+    isSettingsMode: Boolean = false,
+    onSetupComplete: () -> Unit,
+    onCancel: (() -> Unit)? = null
 ) {
+    if (onCancel != null) {
+        BackHandler(onBack = onCancel)
+    }
+
     val uiState by viewModel.uiState.collectAsState()
     val scrollState = rememberScrollState()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Mesh Device Setup", fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        if (isSettingsMode) "Network Settings" else "Mesh Device Setup",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                navigationIcon = {
+                    if (onCancel != null) {
+                        IconButton(onClick = onCancel) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back"
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    if (onCancel != null) {
+                        TextButton(onClick = onCancel) {
+                            Text("Cancel")
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
@@ -172,7 +202,10 @@ fun OnboardingScreen(
                 } else {
                     Icon(Icons.Default.CheckCircle, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Initialize Mesh Node", fontSize = 16.sp)
+                    Text(
+                        if (isSettingsMode) "Save Configuration" else "Initialize Mesh Node",
+                        fontSize = 16.sp
+                    )
                 }
             }
         }

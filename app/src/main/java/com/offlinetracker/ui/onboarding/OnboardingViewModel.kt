@@ -29,15 +29,24 @@ class OnboardingViewModel(private val database: OfflineMeshDatabase) : ViewModel
     val uiState: StateFlow<OnboardingUiState> = _uiState.asStateFlow()
 
     init {
-        checkExistingSetup()
+        loadExistingSetup()
     }
 
-    private fun checkExistingSetup() {
+    private fun loadExistingSetup() {
         viewModelScope.launch(Dispatchers.IO) {
             val isDone = repository.isSetupCompleted()
-            if (isDone) {
-                _uiState.value = _uiState.value.copy(isCompleted = true)
-            }
+            val savedGroupId = repository.getConfig(TrackerRepository.KEY_FAMILY_GROUP_ID)
+            val savedAuthKey = repository.getConfig(TrackerRepository.KEY_AUTH_KEY)
+            val localDev = repository.getLocalDevice()
+
+            _uiState.value = _uiState.value.copy(
+                isCompleted = isDone,
+                groupId = savedGroupId ?: _uiState.value.groupId,
+                authKey = savedAuthKey ?: _uiState.value.authKey,
+                localDeviceId = localDev?.deviceId ?: _uiState.value.localDeviceId,
+                localDisplayName = localDev?.displayName ?: _uiState.value.localDisplayName,
+                localPhoneNumber = localDev?.phoneNumber ?: _uiState.value.localPhoneNumber
+            )
         }
     }
 
