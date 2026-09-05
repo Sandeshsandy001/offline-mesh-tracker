@@ -12,8 +12,8 @@ android {
         applicationId = "com.offlinetracker"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -77,9 +77,15 @@ dependencies {
     // Google Play Location Services
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
-    // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+    // QR Code Generation (ZXing Core)
+    implementation("com.google.zxing:core:3.5.3")
+
+    // CameraX & Barcode Scanning (QR Reading)
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("com.google.guava:guava:33.2.1-android")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

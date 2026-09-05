@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.offlinetracker.data.local.FamilyDeviceEntity
 import com.offlinetracker.data.local.OfflineMeshDatabase
 import com.offlinetracker.protocol.MeshProtocolParser
+import com.offlinetracker.protocol.QrPairingData
 import com.offlinetracker.protocol.SmsSender
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -40,7 +41,24 @@ class DashboardViewModel(private val database: OfflineMeshDatabase) : ViewModel(
     }.flowOn(Dispatchers.IO)
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val localDevice: StateFlow<FamilyDeviceEntity?> = database.familyDeviceDao().observeAll()
+        .map { list -> list.find { it.isLocalDevice } }
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    private val _familyId = MutableStateFlow("FAM_01")
+    val familyId: StateFlow<String> = _familyId.asStateFlow()
+
+    private val _authKey = MutableStateFlow("SECRET_KEY_123")
+    val authKey: StateFlow<String> = _authKey.asStateFlow()
+
     init {
+        // Load initial config
+        viewModelScope.launch(Dispatchers.IO) {
+            database.appConfigDao().get("FAMILY_GROUP_ID")?.let { _familyId.value = it }
+            database.appConfigDao().get("AUTH_KEY")?.let { _authKey.value = it }
+        }
+
         // Auto-dismiss loading spinner as soon as a fresh location log arrives for a device
         viewModelScope.launch(Dispatchers.IO) {
             database.locationLogDao().observeAllLogs().collect { logs ->
@@ -57,15 +75,15 @@ class DashboardViewModel(private val database: OfflineMeshDatabase) : ViewModel(
 
     fun sendLocationPing(context: Context, target: FamilyMemberUiModel) {
         viewModelScope.launch(Dispatchers.IO) {
-            val familyId = database.appConfigDao().get("FAMILY_GROUP_ID") ?: return@launch
-            val authKey = database.appConfigDao().get("AUTH_KEY") ?: return@launch
+            val famId = database.appConfigDao().get("FAMILY_GROUP_ID") ?: _familyId.value
+            val key = database.appConfigDao().get("AUTH_KEY") ?: _authKey.value
             val localDev = database.familyDeviceDao().getLocalDevice() ?: return@launch
 
             val payload = MeshProtocolParser.buildRequest(
-                familyId = familyId,
+                familyId = famId,
                 from = localDev.deviceId,
                 to = target.deviceId,
-                auth = authKey
+                auth = key
             )
 
             _locatingDevices.update { it + target.deviceId }
@@ -96,6 +114,19 @@ class DashboardViewModel(private val database: OfflineMeshDatabase) : ViewModel(
                     deviceId = id.trim().uppercase(),
                     displayName = name.trim(),
                     phoneNumber = SmsSender.sanitizePhoneNumber(phone),
+                    isLocalDevice = false
+                )
+            )
+        }
+    }
+
+    fun addScannedDevice(qrData: QrPairingData) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.familyDeviceDao().insertOrUpdate(
+                FamilyDeviceEntity(
+                    deviceId = qrData.deviceId.trim().uppercase(),
+                    displayName = qrData.displayName.trim(),
+                    phoneNumber = SmsSender.sanitizePhoneNumber(qrData.phoneNumber),
                     isLocalDevice = false
                 )
             )

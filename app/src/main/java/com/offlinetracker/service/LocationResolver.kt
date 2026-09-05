@@ -12,9 +12,11 @@ import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
+import com.google.android.gms.tasks.Task
 import com.offlinetracker.data.local.OfflineMeshDatabase
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.*
-import kotlinx.coroutines.tasks.await
 
 data class ResolvedLocationResult(
     val latitude: Double,
@@ -24,6 +26,18 @@ data class ResolvedLocationResult(
     val timestamp: Long,
     val isFreshGps: Boolean
 )
+
+suspend fun <T> Task<T>.awaitTask(): T = suspendCancellableCoroutine { continuation ->
+    addOnSuccessListener { result ->
+        continuation.resume(result)
+    }
+    addOnFailureListener { exception ->
+        continuation.resumeWithException(exception)
+    }
+    addOnCanceledListener {
+        continuation.cancel()
+    }
+}
 
 object LocationResolver {
     private const val TAG = "LocationResolver"
@@ -49,7 +63,7 @@ object LocationResolver {
                     fusedClient.getCurrentLocation(
                         Priority.PRIORITY_HIGH_ACCURACY,
                         cts.token
-                    ).await()
+                    ).awaitTask()
                 } catch (e: Exception) {
                     Log.w(TAG, "Fused getCurrentLocation failed: ${e.message}")
                     null
@@ -71,7 +85,7 @@ object LocationResolver {
         // 2. Fallback: Google Play Services cached last location
         if (bestLocation == null) {
             try {
-                val cached = fusedClient.lastLocation.await()
+                val cached = fusedClient.lastLocation.awaitTask()
                 if (cached != null) {
                     bestLocation = cached
                     Log.d(TAG, "Using Play Services cached location: ${cached.latitude}, ${cached.longitude}")

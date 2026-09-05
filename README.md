@@ -4,7 +4,7 @@
 [![Kotlin](https://img.shields.io/badge/Kotlin-1.9.24-blue.svg)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/Jetpack%20Compose-M3-purple.svg)](https://developer.android.com/jetpack/compose)
 [![Room](https://img.shields.io/badge/Room%20DB-2.6.1-orange.svg)](https://developer.android.com/training/data-storage/room)
-[![Release](https://img.shields.io/badge/Release-v1.0.0-blue.svg)](https://github.com/Sandeshsandy001/offline-mesh-tracker/releases)
+[![Release](https://img.shields.io/badge/Release-v1.1.0-blue.svg)](https://github.com/Sandeshsandy001/offline-mesh-tracker/releases)
 
 **Offline Mesh Tracker (OMT)** is a 100% internet-free, zero-battery-drain Android tracking application operating purely over cellular signaling channels (SMS). It enables peer-to-peer location tracking with zero cloud dependencies, cryptographic authentication, dual-SIM support, parallel GPS acquisition, and one-tap Google Maps visualization.
 
@@ -14,7 +14,7 @@
 
 You do not need Android Studio or a computer to install this app. You can install the pre-built APK directly onto any Android device:
 
-👉 **[Download Latest APK (v1.0.0)](https://github.com/Sandeshsandy001/offline-mesh-tracker/releases/latest)**
+👉 **[Download Latest APK (v1.1.0)](https://github.com/Sandeshsandy001/offline-mesh-tracker/releases/latest)**
 
 ### How to Install:
 1. Download `app-debug.apk` onto your Android phone.

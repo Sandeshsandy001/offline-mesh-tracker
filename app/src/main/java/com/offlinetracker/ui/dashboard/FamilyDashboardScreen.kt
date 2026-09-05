@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,6 +17,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.offlinetracker.protocol.QrPairingData
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -26,7 +30,12 @@ fun FamilyDashboardScreen(
 ) {
     val context = LocalContext.current
     val familyList by viewModel.familyMembers.collectAsState()
+    val localDevice by viewModel.localDevice.collectAsState()
+    val familyId by viewModel.familyId.collectAsState()
+    val authKey by viewModel.authKey.collectAsState()
+
     var showAddDialog by remember { mutableStateOf(false) }
+    var showQrDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -42,6 +51,11 @@ fun FamilyDashboardScreen(
                     }
                 },
                 actions = {
+                    if (localDevice != null) {
+                        IconButton(onClick = { showQrDialog = true }) {
+                            Icon(Icons.Default.QrCode2, contentDescription = "Show My QR")
+                        }
+                    }
                     IconButton(onClick = { showAddDialog = true }) {
                         Icon(Icons.Default.PersonAdd, contentDescription = "Add Member")
                     }
@@ -97,7 +111,8 @@ fun FamilyDashboardScreen(
                         member = member,
                         onLocateClick = { viewModel.sendLocationPing(context, member) },
                         onMapClick = { viewModel.openInGoogleMaps(context, member) },
-                        onDeleteClick = { viewModel.deleteFamilyDevice(member.deviceId) }
+                        onDeleteClick = { viewModel.deleteFamilyDevice(member.deviceId) },
+                        onShowQrClick = if (member.isLocalDevice) { { showQrDialog = true } } else null
                     )
                 }
             }
@@ -106,10 +121,23 @@ fun FamilyDashboardScreen(
         if (showAddDialog) {
             AddDeviceDialog(
                 onDismiss = { showAddDialog = false },
-                onConfirm = { id, name, phone ->
+                onManualConfirm = { id, name, phone ->
                     viewModel.addFamilyDevice(id, name, phone)
                     showAddDialog = false
+                },
+                onQrScanned = { qrData ->
+                    viewModel.addScannedDevice(qrData)
+                    showAddDialog = false
                 }
+            )
+        }
+
+        if (showQrDialog && localDevice != null) {
+            ShowQrDialog(
+                localDevice = localDevice!!,
+                familyId = familyId,
+                authKey = authKey,
+                onDismiss = { showQrDialog = false }
             )
         }
     }
@@ -120,7 +148,8 @@ fun FamilyMemberCard(
     member: FamilyMemberUiModel,
     onLocateClick: () -> Unit,
     onMapClick: () -> Unit,
-    onDeleteClick: () -> Unit
+    onDeleteClick: () -> Unit,
+    onShowQrClick: (() -> Unit)? = null
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val hasLocation = member.lastLatitude != null && member.lastLongitude != null
@@ -209,6 +238,21 @@ fun FamilyMemberCard(
                             "$bat%",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (bat < 20) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+
+                if (member.isLocalDevice && onShowQrClick != null) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    IconButton(
+                        onClick = onShowQrClick,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.QrCode,
+                            contentDescription = "Show QR",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -309,7 +353,7 @@ fun FamilyMemberCard(
                             Text("Requesting...", fontSize = 13.sp)
                         } else {
                             Icon(
-                                Icons.Default.Send,
+                                Icons.AutoMirrored.Filled.Send,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp)
                             )
@@ -338,56 +382,128 @@ fun FamilyMemberCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddDeviceDialog(
     onDismiss: () -> Unit,
-    onConfirm: (id: String, name: String, phone: String) -> Unit
+    onManualConfirm: (id: String, name: String, phone: String) -> Unit,
+    onQrScanned: (QrPairingData) -> Unit
 ) {
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Scan QR, 1: Manual
     var devId by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Pair Family Device") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = devId,
-                    onValueChange = { devId = it },
-                    label = { Text("Device ID (e.g. DEV_02)") },
-                    singleLine = true
+    if (selectedTab == 0) {
+        // Full screen camera QR scanner modal
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                QrScannerView(
+                    onQrScanned = onQrScanned,
+                    onDismiss = onDismiss
                 )
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Member Name (e.g. Dad)") },
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { phone = it },
-                    label = { Text("Phone Number") },
-                    singleLine = true
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (devId.isNotBlank() && phone.isNotBlank()) {
-                        onConfirm(devId, name, phone)
+
+                // Tab Switcher overlay at top
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 40.dp)
+                ) {
+                    TabRow(
+                        selectedTabIndex = selectedTab,
+                        modifier = Modifier.width(260.dp),
+                        containerColor = Color.Transparent
+                    ) {
+                        Tab(
+                            selected = true,
+                            onClick = { selectedTab = 0 },
+                            text = { Text("Scan QR", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) },
+                            icon = { Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
+                        Tab(
+                            selected = false,
+                            onClick = { selectedTab = 1 },
+                            text = { Text("Manual", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) },
+                            icon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
                     }
-                },
-                enabled = devId.isNotBlank() && phone.isNotBlank()
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                }
             }
         }
-    )
+    } else {
+        // Manual form dialog
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = {
+                Column {
+                    Text("Pair Family Device", fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    PrimaryTabRow(
+                        selectedTabIndex = selectedTab,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Tab(
+                            selected = false,
+                            onClick = { selectedTab = 0 },
+                            text = { Text("Scan QR") },
+                            icon = { Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
+                        Tab(
+                            selected = true,
+                            onClick = { selectedTab = 1 },
+                            text = { Text("Manual") },
+                            icon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
+                    }
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = devId,
+                        onValueChange = { devId = it },
+                        label = { Text("Device ID (e.g. DEV_02)") },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) }
+                    )
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Member Name (e.g. Dad)") },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) }
+                    )
+                    OutlinedTextField(
+                        value = phone,
+                        onValueChange = { phone = it },
+                        label = { Text("Phone Number") },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) }
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (devId.isNotBlank() && phone.isNotBlank()) {
+                            onManualConfirm(devId, name, phone)
+                        }
+                    },
+                    enabled = devId.isNotBlank() && phone.isNotBlank()
+                ) {
+                    Text("Save Device")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
