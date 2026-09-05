@@ -70,7 +70,7 @@ class TrackerRepository(private val database: OfflineMeshDatabase) {
         val localDevice = FamilyDeviceEntity(
             deviceId = localDeviceId.trim().uppercase(),
             displayName = localDisplayName.trim(),
-            phoneNumber = localPhoneNumber.trim(),
+            phoneNumber = com.offlinetracker.protocol.SmsSender.sanitizePhoneNumber(localPhoneNumber),
             isLocalDevice = true
         )
         insertOrUpdateDevice(localDevice)

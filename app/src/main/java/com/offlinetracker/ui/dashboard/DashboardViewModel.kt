@@ -3,12 +3,12 @@ package com.offlinetracker.ui.dashboard
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.telephony.SmsManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.offlinetracker.data.local.FamilyDeviceEntity
 import com.offlinetracker.data.local.OfflineMeshDatabase
 import com.offlinetracker.protocol.MeshProtocolParser
+import com.offlinetracker.protocol.SmsSender
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -19,10 +19,11 @@ class DashboardViewModel(private val database: OfflineMeshDatabase) : ViewModel(
 
     val familyMembers: StateFlow<List<FamilyMemberUiModel>> = combine(
         database.familyDeviceDao().observeAll(),
+        database.locationLogDao().observeAllLogs(),
         _locatingDevices
-    ) { devices, locatingSet ->
+    ) { devices, logs, locatingSet ->
         devices.map { device ->
-            val latestLog = database.locationLogDao().getLatestLocation(device.deviceId)
+            val latestLog = logs.firstOrNull { it.deviceId == device.deviceId }
             FamilyMemberUiModel(
                 deviceId = device.deviceId,
                 displayName = device.displayName,
@@ -39,6 +40,21 @@ class DashboardViewModel(private val database: OfflineMeshDatabase) : ViewModel(
     }.flowOn(Dispatchers.IO)
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    init {
+        // Auto-dismiss loading spinner as soon as a fresh location log arrives for a device
+        viewModelScope.launch(Dispatchers.IO) {
+            database.locationLogDao().observeAllLogs().collect { logs ->
+                val recentDeviceIds = logs
+                    .filter { System.currentTimeMillis() - it.timestamp < 30000L }
+                    .map { it.deviceId }
+                    .toSet()
+                if (recentDeviceIds.isNotEmpty()) {
+                    _locatingDevices.update { current -> current - recentDeviceIds }
+                }
+            }
+        }
+    }
+
     fun sendLocationPing(context: Context, target: FamilyMemberUiModel) {
         viewModelScope.launch(Dispatchers.IO) {
             val familyId = database.appConfigDao().get("FAMILY_GROUP_ID") ?: return@launch
@@ -54,16 +70,20 @@ class DashboardViewModel(private val database: OfflineMeshDatabase) : ViewModel(
 
             _locatingDevices.update { it + target.deviceId }
 
-            try {
-                val smsManager = context.getSystemService(SmsManager::class.java)
-                smsManager.sendTextMessage(target.phoneNumber, null, payload, null, null)
-            } catch (e: Exception) {
+            val success = SmsSender.sendSms(
+                context = context,
+                destinationPhone = target.phoneNumber,
+                message = payload
+            )
+
+            if (!success) {
                 _locatingDevices.update { it - target.deviceId }
+                return@launch
             }
 
-            // Automatically reset locating state after 30 seconds if no response
+            // Automatically reset locating state after 25 seconds if no response
             launch {
-                kotlinx.coroutines.delay(30000L)
+                kotlinx.coroutines.delay(25000L)
                 _locatingDevices.update { it - target.deviceId }
             }
         }
@@ -75,7 +95,7 @@ class DashboardViewModel(private val database: OfflineMeshDatabase) : ViewModel(
                 FamilyDeviceEntity(
                     deviceId = id.trim().uppercase(),
                     displayName = name.trim(),
-                    phoneNumber = phone.trim(),
+                    phoneNumber = SmsSender.sanitizePhoneNumber(phone),
                     isLocalDevice = false
                 )
             )

@@ -1,34 +1,23 @@
 package com.offlinetracker.service
 
-import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.location.Location
-import android.os.BatteryManager
-import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import android.telephony.SmsManager
 import androidx.core.app.NotificationCompat
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
-import com.google.android.gms.tasks.CancellationTokenSource
-import com.offlinetracker.R
+import com.offlinetracker.data.local.OfflineMeshDatabase
 import com.offlinetracker.protocol.MeshProtocolParser
+import com.offlinetracker.protocol.SmsSender
 import kotlinx.coroutines.*
-import kotlinx.coroutines.tasks.await
 
 class LocationDispatcherService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var wakeLock: PowerManager.WakeLock? = null
-    private lateinit var fusedLocationClient: FusedLocationProviderClient
 
     companion object {
         const val CHANNEL_ID = "offline_tracker_location_channel"
@@ -42,7 +31,6 @@ class LocationDispatcherService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         acquireWakeLock()
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildSilentNotification())
@@ -69,84 +57,37 @@ class LocationDispatcherService : Service() {
 
         serviceScope.launch {
             try {
-                val resolvedLocation = resolveLocationWithTimeout(timeoutMs = 10000L)
-                val batteryLevel = getBatteryPercentage()
+                val db = OfflineMeshDatabase.get(applicationContext)
+                val locationResult = LocationResolver.resolveLocation(
+                    context = applicationContext,
+                    db = db,
+                    localDeviceId = localDevId,
+                    timeoutMs = 7000L
+                )
 
-                if (resolvedLocation != null) {
-                    val responsePayload = MeshProtocolParser.buildResponse(
-                        familyId = familyId,
-                        from = localDevId,
-                        to = requesterDevId,
-                        lat = resolvedLocation.latitude,
-                        lon = resolvedLocation.longitude,
-                        acc = resolvedLocation.accuracy,
-                        bat = batteryLevel,
-                        ts = System.currentTimeMillis()
-                    )
-                    dispatchSms(replyPhone, responsePayload, subId)
-                }
+                val responsePayload = MeshProtocolParser.buildResponse(
+                    familyId = familyId,
+                    from = localDevId,
+                    to = requesterDevId,
+                    lat = locationResult.latitude,
+                    lon = locationResult.longitude,
+                    acc = locationResult.accuracy,
+                    bat = locationResult.batteryPercent,
+                    ts = locationResult.timestamp
+                )
+
+                SmsSender.sendSms(
+                    context = applicationContext,
+                    destinationPhone = replyPhone,
+                    message = responsePayload,
+                    subId = subId
+                )
             } finally {
                 cleanupAndStop()
             }
         }
 
         return START_NOT_STICKY
-    }
-
-    @SuppressLint("MissingPermission")
-    private suspend fun resolveLocationWithTimeout(timeoutMs: Long): Location? =
-        withContext(Dispatchers.IO) {
-            val cts = CancellationTokenSource()
-
-            // 1. Immediately read cached system location
-            val cachedDeferred = async {
-                try {
-                    fusedLocationClient.lastLocation.await()
-                } catch (e: Exception) {
-                    null
-                }
-            }
-
-            // 2. Request fresh satellite GPS fix concurrently
-            val freshDeferred = async {
-                try {
-                    fusedLocationClient.getCurrentLocation(
-                        Priority.PRIORITY_HIGH_ACCURACY,
-                        cts.token
-                    ).await()
-                } catch (e: Exception) {
-                    null
-                }
-            }
-
-            // Wait up to timeoutMs for fresh location, fallback to cached
-            val freshLocation = withTimeoutOrNull(timeoutMs) { freshDeferred.await() }
-            cts.cancel()
-            freshLocation ?: cachedDeferred.await()
-        }
-
-    private fun dispatchSms(destinationPhone: String, message: String, subId: Int) {
-        try {
-            val smsManager: SmsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (subId != -1) {
-                    applicationContext.getSystemService(SmsManager::class.java).createForSubscriptionId(subId)
-                } else {
-                    applicationContext.getSystemService(SmsManager::class.java)
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                if (subId != -1) SmsManager.getSmsManagerForSubscriptionId(subId) else SmsManager.getDefault()
-            }
-            smsManager.sendTextMessage(destinationPhone, null, message, null, null)
-        } catch (ignored: Exception) {
-        }
-    }
-
-    private fun getBatteryPercentage(): Int {
-        val batteryIntent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val level = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val scale = batteryIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        return if (level >= 0 && scale > 0) ((level / scale.toFloat()) * 100).toInt() else -1
     }
 
     private fun acquireWakeLock() {

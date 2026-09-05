@@ -3,20 +3,27 @@ package com.offlinetracker.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import android.provider.Telephony
 import android.telephony.SubscriptionManager
-import androidx.core.content.ContextCompat
+import android.util.Log
+import com.offlinetracker.data.local.FamilyDeviceEntity
 import com.offlinetracker.data.local.LocationLogEntity
 import com.offlinetracker.data.local.OfflineMeshDatabase
 import com.offlinetracker.protocol.MeshMessage
 import com.offlinetracker.protocol.MeshProtocolParser
 import com.offlinetracker.protocol.PhoneNumberNormalizer
-import com.offlinetracker.service.LocationDispatcherService
+import com.offlinetracker.protocol.SmsSender
+import com.offlinetracker.service.LocationResolver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class SmsTriggerReceiver : BroadcastReceiver() {
+
+    companion object {
+        private const val TAG = "SmsTriggerReceiver"
+    }
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
@@ -25,6 +32,13 @@ class SmsTriggerReceiver : BroadcastReceiver() {
         if (messages.isEmpty()) return
 
         val pendingResult = goAsync()
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val wakeLock = powerManager?.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "OMT:SmsTriggerReceiverWakeLock"
+        )?.apply {
+            acquire(20000L) // 20s safety limit
+        }
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -42,34 +56,78 @@ class SmsTriggerReceiver : BroadcastReceiver() {
                     }
 
                     val parsed = MeshProtocolParser.parse(body) ?: continue
-
-                    // Validate Sender Phone via 10-digit normalization
-                    val senderDevice = allDevices.find {
-                        PhoneNumberNormalizer.matches(it.phoneNumber, rawSender)
-                    } ?: continue
+                    Log.d(TAG, "Parsed mesh packet: ${parsed.javaClass.simpleName} from $rawSender")
 
                     when (parsed) {
                         is MeshMessage.Request -> {
-                            if (parsed.familyId != expectedFamilyId) continue
-                            if (parsed.toDeviceId != localDevice.deviceId) continue
-                            if (parsed.authKey != expectedAuthKey) continue
-
-                            // Launch Foreground Service for on-demand GPS acquisition
-                            val serviceIntent = Intent(context, LocationDispatcherService::class.java).apply {
-                                putExtra(LocationDispatcherService.EXTRA_REPLY_PHONE, senderDevice.phoneNumber)
-                                putExtra(LocationDispatcherService.EXTRA_REQ_DEV_ID, parsed.fromDeviceId)
-                                putExtra(LocationDispatcherService.EXTRA_LOCAL_DEV_ID, localDevice.deviceId)
-                                putExtra(LocationDispatcherService.EXTRA_FAMILY_ID, expectedFamilyId)
-                                putExtra(LocationDispatcherService.EXTRA_SUB_ID, subId)
+                            // Verify Group, Target Device, and Cryptographic Shared Secret
+                            if (parsed.familyId != expectedFamilyId) {
+                                Log.w(TAG, "Family ID mismatch: expected $expectedFamilyId, got ${parsed.familyId}")
+                                continue
                             }
-                            ContextCompat.startForegroundService(context, serviceIntent)
+                            if (parsed.toDeviceId != localDevice.deviceId) {
+                                Log.d(TAG, "Target device ID mismatch: expected ${localDevice.deviceId}, got ${parsed.toDeviceId}")
+                                continue
+                            }
+                            if (parsed.authKey != expectedAuthKey) {
+                                Log.w(TAG, "Authentication key mismatch from $rawSender")
+                                continue
+                            }
+
+                            // Auto-register or update peer device in local list if not already saved
+                            val existingSender = allDevices.find {
+                                it.deviceId == parsed.fromDeviceId || PhoneNumberNormalizer.matches(it.phoneNumber, rawSender)
+                            }
+                            if (existingSender == null) {
+                                db.familyDeviceDao().insertOrUpdate(
+                                    FamilyDeviceEntity(
+                                        deviceId = parsed.fromDeviceId,
+                                        displayName = "Device ${parsed.fromDeviceId}",
+                                        phoneNumber = rawSender,
+                                        isLocalDevice = false
+                                    )
+                                )
+                                Log.d(TAG, "Auto-discovered new family device: ${parsed.fromDeviceId} ($rawSender)")
+                            } else if (existingSender.phoneNumber.isBlank()) {
+                                db.familyDeviceDao().insertOrUpdate(
+                                    existingSender.copy(phoneNumber = rawSender)
+                                )
+                            }
+
+                            // Acquire location using multi-tier fallback (Fused GPS -> Play Services cache -> Native LocationManager -> DB)
+                            val locationResult = LocationResolver.resolveLocation(
+                                context = context,
+                                db = db,
+                                localDeviceId = localDevice.deviceId,
+                                timeoutMs = 7000L
+                            )
+
+                            // Construct and dispatch response packet
+                            val responsePayload = MeshProtocolParser.buildResponse(
+                                familyId = expectedFamilyId,
+                                from = localDevice.deviceId,
+                                to = parsed.fromDeviceId,
+                                lat = locationResult.latitude,
+                                lon = locationResult.longitude,
+                                acc = locationResult.accuracy,
+                                bat = locationResult.batteryPercent,
+                                ts = locationResult.timestamp
+                            )
+
+                            // Dispatch reply SMS directly to the originating network address
+                            SmsSender.sendSms(
+                                context = context,
+                                destinationPhone = rawSender,
+                                message = responsePayload,
+                                subId = subId
+                            )
                         }
 
                         is MeshMessage.Response -> {
                             if (parsed.familyId != expectedFamilyId) continue
                             if (parsed.toDeviceId != localDevice.deviceId) continue
 
-                            // Persist coordinates from targeted device
+                            // Persist incoming coordinates
                             db.locationLogDao().insertLog(
                                 LocationLogEntity(
                                     deviceId = parsed.fromDeviceId,
@@ -80,10 +138,33 @@ class SmsTriggerReceiver : BroadcastReceiver() {
                                     timestamp = parsed.timestamp
                                 )
                             )
+                            Log.d(TAG, "Persisted location response for ${parsed.fromDeviceId}")
+
+                            // Auto-register peer device if missing
+                            val existingPeer = allDevices.find {
+                                it.deviceId == parsed.fromDeviceId || PhoneNumberNormalizer.matches(it.phoneNumber, rawSender)
+                            }
+                            if (existingPeer == null) {
+                                db.familyDeviceDao().insertOrUpdate(
+                                    FamilyDeviceEntity(
+                                        deviceId = parsed.fromDeviceId,
+                                        displayName = "Device ${parsed.fromDeviceId}",
+                                        phoneNumber = rawSender,
+                                        isLocalDevice = false
+                                    )
+                                )
+                            }
                         }
                     }
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error handling SMS in SmsTriggerReceiver", e)
             } finally {
+                try {
+                    if (wakeLock?.isHeld == true) {
+                        wakeLock.release()
+                    }
+                } catch (ignored: Exception) {}
                 pendingResult.finish()
             }
         }

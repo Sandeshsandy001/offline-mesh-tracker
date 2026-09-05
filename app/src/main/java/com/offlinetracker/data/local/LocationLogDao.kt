@@ -8,6 +8,9 @@ interface LocationLogDao {
     @Query("SELECT * FROM location_logs WHERE deviceId = :deviceId ORDER BY timestamp DESC")
     fun observeLogsForDevice(deviceId: String): Flow<List<LocationLogEntity>>
 
+    @Query("SELECT * FROM location_logs ORDER BY timestamp DESC")
+    fun observeAllLogs(): Flow<List<LocationLogEntity>>
+
     @Query("SELECT * FROM location_logs WHERE deviceId = :deviceId ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLatestLocation(deviceId: String): LocationLogEntity?
 
