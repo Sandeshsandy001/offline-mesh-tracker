@@ -14,9 +14,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.offlinetracker.MainActivity
+import com.offlinetracker.util.PermanentReliabilityHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,6 +38,24 @@ fun OnboardingScreen(
 
     val uiState by viewModel.uiState.collectAsState()
     val scrollState = rememberScrollState()
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    var isBatteryIgnored by remember { mutableStateOf(PermanentReliabilityHelper.isBatteryOptimizationIgnored(context)) }
+    var hasBgLocation by remember { mutableStateOf(PermanentReliabilityHelper.hasBackgroundLocation(context)) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isBatteryIgnored = PermanentReliabilityHelper.isBatteryOptimizationIgnored(context)
+                hasBgLocation = PermanentReliabilityHelper.hasBackgroundLocation(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -165,7 +189,7 @@ fun OnboardingScreen(
                 leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) }
             )
 
-            // Setup Checklist
+            // Zero-Maintenance / 1-Year Reliability Card
             Card(
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -173,11 +197,59 @@ fun OnboardingScreen(
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Provisioning Checklist", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    ChecklistItem(title = "Location Permission", desc = "Choose 'Allow all the time' for zero-interaction background pings.")
-                    ChecklistItem(title = "SMS Permissions", desc = "Allow SEND_SMS and RECEIVE_SMS to transmit encrypted coordinate packets.")
-                    ChecklistItem(title = "Battery Unrestricted", desc = "Disable battery optimization so OS OEM killers don't terminate receiver.")
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Shield,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Permanent Background Reliability",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                    }
+                    Text(
+                        "OMT stores network keys permanently in SQLite disk storage and requires zero periodic check-ins. Configure the permissions below so Android never hibernates the background listener:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                    ReliabilityActionRow(
+                        title = "Battery: Unrestricted",
+                        desc = "Prevents Android OEM deep sleep from killing background SMS receivers.",
+                        isConfigured = isBatteryIgnored,
+                        actionLabel = "Allow",
+                        onAction = { PermanentReliabilityHelper.requestIgnoreBatteryOptimization(context) }
+                    )
+
+                    ReliabilityActionRow(
+                        title = "Location: Allow all the time",
+                        desc = "Enables background GPS fixes when pings arrive with screen off.",
+                        isConfigured = hasBgLocation,
+                        actionLabel = "Allow",
+                        onAction = {
+                            (context as? MainActivity)?.requestBackgroundLocation()
+                                ?: PermanentReliabilityHelper.openAppDetailsSettings(context)
+                        }
+                    )
+
+                    ReliabilityActionRow(
+                        title = "Unused App Hibernation",
+                        desc = "Turn off 'Pause app activity if unused' so Android never revokes permissions.",
+                        isConfigured = false,
+                        configuredLabel = "Settings",
+                        actionLabel = "Configure",
+                        onAction = { PermanentReliabilityHelper.openUnusedAppRestrictionsSettings(context) }
+                    )
                 }
             }
 
@@ -219,20 +291,57 @@ fun OnboardingScreen(
 }
 
 @Composable
-private fun ChecklistItem(title: String, desc: String) {
-    Row(verticalAlignment = Alignment.Top) {
-        Icon(
-            Icons.Default.Check,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .size(18.dp)
-                .padding(top = 2.dp)
-        )
+private fun ReliabilityActionRow(
+    title: String,
+    desc: String,
+    isConfigured: Boolean,
+    actionLabel: String,
+    configuredLabel: String = "Active",
+    onAction: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isConfigured) Icons.Default.CheckCircle else Icons.Default.Info,
+                    contentDescription = null,
+                    tint = if (isConfigured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    title,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp
+                )
+            }
+            Text(
+                desc,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 22.dp)
+            )
+        }
         Spacer(modifier = Modifier.width(8.dp))
-        Column {
-            Text(title, fontWeight = FontWeight.Medium, fontSize = 13.sp)
-            Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (isConfigured) {
+            FilledTonalButton(
+                onClick = onAction,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                modifier = Modifier.height(34.dp)
+            ) {
+                Text(configuredLabel, fontSize = 12.sp)
+            }
+        } else {
+            Button(
+                onClick = onAction,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.height(34.dp)
+            ) {
+                Text(actionLabel, fontSize = 12.sp)
+            }
         }
     }
 }

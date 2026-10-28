@@ -128,21 +128,27 @@ TARGET DEVICE (Traveler / Child / Asset)
 
 ---
 
-## ⚙️ Device Provisioning & Post-Install Checklist
+## ⚙️ Device Provisioning & Permanent Connectivity Guide
 
-To bypass aggressive OEM background killers across devices (Xiaomi, Samsung, Vivo, Oppo), configure the following after installing:
+OMT is engineered with **zero servers, zero cloud sessions, and zero token expiration**. Once paired, devices remain paired **permanently in local SQLite storage**—you never need to open the app regularly or perform periodic keep-alives.
 
-| Category | Setting | Requirement |
+To ensure an Android device can respond to location queries even if the app hasn't been opened for **1 month or 1 year**, complete this 1-time setup on all family phones:
+
+| Category | Setting | Why It's Needed for 1-Year Survival |
 |---|---|---|
-| **Core Permissions** | Location | Select **"Allow all the time"** |
-| | SMS | Allow `SEND_SMS` and `RECEIVE_SMS` |
-| | Phone State | Allow (for Dual-SIM `subId` resolution) |
-| **Battery & OS** | Stock Android | `Settings > Apps > OMT > Battery > Unrestricted` |
-| | Xiaomi / HyperOS | `App Info > Enable Autostart` & `Battery Saver: No restrictions` |
-| | Samsung (OneUI) | `Device Care > Battery > Background usage limits > Never auto sleeping apps` |
-| **Mesh Pairing** | Group ID | Set identical `Family Group ID` (e.g. `FAM_01`) across all family devices |
-| | Secret Auth Key | Set identical `Secret Auth Key` across all family devices |
-| | Device IDs | Assign unique IDs (e.g. `DEV_01`, `DEV_02`, `DEV_03`) |
+| **Core Permissions** | **Location: "Allow all the time"** | Required on Android 10+ so GPS can be resolved in the background with screen locked. |
+| | **SMS Permissions** | Allow `SEND_SMS` and `RECEIVE_SMS` for peer-to-peer mesh packet transport. |
+| | **Phone State** | Resolves Dual-SIM `subId` so replies route out the correct carrier. |
+| **Android Sleep Protection** | **Battery: "Unrestricted"** | Prevents Samsung/Xiaomi/Pixel OEM task killers from placing the app into "Deep Sleep" after weeks of inactivity. |
+| **Android Hibernation Protection** | **"Pause app activity if unused" -> OFF** | Prevents Android 11+ from auto-revoking SMS and Location permissions after 90 days of no manual app opens. |
+| **Boot Survival** | **Autostart / Boot Listener** | Built-in `BootReceiver` (`RECEIVE_BOOT_COMPLETED`) automatically registers the SMS listener on phone restart. |
+
+### OEM-Specific Battery & Autostart Settings:
+* **Stock Android / Pixel / Motorola**: `Settings > Apps > Offline Mesh Tracker > Battery > Unrestricted`, and toggle off *"Pause app activity if unused"*.
+* **Samsung (OneUI)**: `Settings > Apps > Offline Mesh Tracker > Battery > Unrestricted`, and `Device Care > Battery > Background usage limits > Never auto sleeping apps` (add OMT).
+* **Xiaomi / Redmi / POCO (HyperOS / MIUI)**: `App Info > Enable Autostart` & set `Battery Saver > No restrictions`.
+* **OnePlus / OPPO / Realme (ColorOS / OxygenOS)**: `App Info > Battery usage > Allow background activity & Allow auto-launch`.
+* **Vivo / iQOO (Funtouch OS)**: `Settings > Battery > Background power consumption management > High background power usage`.
 
 ---
 

@@ -19,10 +19,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.offlinetracker.MainActivity
 import com.offlinetracker.data.local.FamilyDeviceEntity
 import com.offlinetracker.protocol.DeviceIdGenerator
 import com.offlinetracker.protocol.PhoneNumberNormalizer
 import com.offlinetracker.protocol.QrPairingData
+import com.offlinetracker.util.PermanentReliabilityHelper
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,6 +42,24 @@ fun FamilyDashboardScreen(
     val localDevice by viewModel.localDevice.collectAsState()
     val familyId by viewModel.familyId.collectAsState()
     val authKey by viewModel.authKey.collectAsState()
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isBatteryIgnored by remember { mutableStateOf(PermanentReliabilityHelper.isBatteryOptimizationIgnored(context)) }
+    var hasBgLocation by remember { mutableStateOf(PermanentReliabilityHelper.hasBackgroundLocation(context)) }
+    var showReliabilityBanner by remember { mutableStateOf(true) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isBatteryIgnored = PermanentReliabilityHelper.isBatteryOptimizationIgnored(context)
+                hasBgLocation = PermanentReliabilityHelper.hasBackgroundLocation(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showQrDialog by remember { mutableStateOf(false) }
@@ -82,7 +105,25 @@ fun FamilyDashboardScreen(
                     .padding(innerPadding),
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    if (showReliabilityBanner && (!isBatteryIgnored || !hasBgLocation)) {
+                        ReliabilityBanner(
+                            isBatteryIgnored = isBatteryIgnored,
+                            hasBgLocation = hasBgLocation,
+                            onFixBattery = { PermanentReliabilityHelper.requestIgnoreBatteryOptimization(context) },
+                            onFixLocation = {
+                                (context as? MainActivity)?.requestBackgroundLocation()
+                                    ?: PermanentReliabilityHelper.openAppDetailsSettings(context)
+                            },
+                            onOpenSettings = { PermanentReliabilityHelper.openUnusedAppRestrictionsSettings(context) },
+                            onDismiss = { showReliabilityBanner = false }
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                    }
+
                     Icon(
                         Icons.Default.PermDeviceInformation,
                         contentDescription = null,
@@ -110,6 +151,22 @@ fun FamilyDashboardScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                if (showReliabilityBanner && (!isBatteryIgnored || !hasBgLocation)) {
+                    item(key = "reliability_banner") {
+                        ReliabilityBanner(
+                            isBatteryIgnored = isBatteryIgnored,
+                            hasBgLocation = hasBgLocation,
+                            onFixBattery = { PermanentReliabilityHelper.requestIgnoreBatteryOptimization(context) },
+                            onFixLocation = {
+                                (context as? MainActivity)?.requestBackgroundLocation()
+                                    ?: PermanentReliabilityHelper.openAppDetailsSettings(context)
+                            },
+                            onOpenSettings = { PermanentReliabilityHelper.openUnusedAppRestrictionsSettings(context) },
+                            onDismiss = { showReliabilityBanner = false }
+                        )
+                    }
+                }
+
                 items(items = familyList, key = { it.deviceId }) { member ->
                     FamilyMemberCard(
                         member = member,
@@ -623,5 +680,81 @@ fun AddDeviceDialog(
                 }
             }
         )
+    }
+}
+
+@Composable
+fun ReliabilityBanner(
+    isBatteryIgnored: Boolean,
+    hasBgLocation: Boolean,
+    onFixBattery: () -> Unit,
+    onFixLocation: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f)
+        ),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Shield,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Permanent Background Connectivity",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
+                }
+            }
+            Text(
+                "To ensure this device replies even if the app hasn't been opened for 1 month or 1 year, complete these 1-time settings:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                if (!isBatteryIgnored) {
+                    Button(
+                        onClick = onFixBattery,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("No Battery Sleep", fontSize = 12.sp)
+                    }
+                }
+                if (!hasBgLocation) {
+                    Button(
+                        onClick = onFixLocation,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("Always Allow GPS", fontSize = 12.sp)
+                    }
+                }
+                OutlinedButton(
+                    onClick = onOpenSettings,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Text("Auto-Revoke Off", fontSize = 12.sp)
+                }
+            }
+        }
     }
 }
