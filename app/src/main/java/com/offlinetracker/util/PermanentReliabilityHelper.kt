@@ -89,3 +89,4 @@ object PermanentReliabilityHelper {
         openAppDetailsSettings(context)
     }
 }
+

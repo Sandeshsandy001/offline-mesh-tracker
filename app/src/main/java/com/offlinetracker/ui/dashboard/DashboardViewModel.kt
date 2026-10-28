@@ -174,6 +174,7 @@ class DashboardViewModel(private val database: OfflineMeshDatabase) : ViewModel(
     fun openInGoogleMaps(context: Context, member: FamilyMemberUiModel) {
         val lat = member.lastLatitude ?: return
         val lon = member.lastLongitude ?: return
+        if (lat == 0.0 && lon == 0.0) return
         val label = Uri.encode("${member.displayName}'s Location")
         val uri = "geo:$lat,$lon?q=$lat,$lon($label)"
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uri)).apply {

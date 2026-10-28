@@ -215,7 +215,9 @@ fun FamilyMemberCard(
     onShowQrClick: (() -> Unit)? = null
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    val hasLocation = member.lastLatitude != null && member.lastLongitude != null
+    val isValidCoordinates = member.lastLatitude != null && member.lastLongitude != null &&
+            !(member.lastLatitude == 0.0 && member.lastLongitude == 0.0)
+    val isLocationDisabled = member.lastLatitude == 0.0 && member.lastLongitude == 0.0
 
     if (showDeleteConfirm) {
         AlertDialog(
@@ -342,7 +344,7 @@ fun FamilyMemberCard(
                 color = MaterialTheme.colorScheme.outlineVariant
             )
 
-            if (hasLocation) {
+            if (isValidCoordinates) {
                 val timeSpan = member.lastSeenTimestamp?.let {
                     DateUtils.getRelativeTimeSpanString(
                         it,
@@ -372,6 +374,29 @@ fun FamilyMemberCard(
                         )
                         Text(
                             text = "Accuracy: ${member.accuracyMeters?.toInt()}m • $timeSpan",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else if (isLocationDisabled) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.LocationDisabled,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Column {
+                        Text(
+                            text = "Location is turned OFF on device",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Text(
+                            text = "Phone received ping (Battery: ${member.batteryPercent ?: "?"}%), but its GPS toggle is disabled.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -428,7 +453,7 @@ fun FamilyMemberCard(
                     OutlinedButton(
                         onClick = onMapClick,
                         modifier = Modifier.weight(1f),
-                        enabled = hasLocation,
+                        enabled = isValidCoordinates,
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Icon(
