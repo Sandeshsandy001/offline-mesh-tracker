@@ -7,7 +7,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.offlinetracker.data.local.FamilyDeviceEntity
 import com.offlinetracker.data.local.OfflineMeshDatabase
+import com.offlinetracker.protocol.DeviceIdGenerator
 import com.offlinetracker.protocol.MeshProtocolParser
+import com.offlinetracker.protocol.PhoneNumberNormalizer
 import com.offlinetracker.protocol.QrPairingData
 import com.offlinetracker.protocol.SmsSender
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +19,10 @@ import kotlinx.coroutines.launch
 class DashboardViewModel(private val database: OfflineMeshDatabase) : ViewModel() {
 
     private val _locatingDevices = MutableStateFlow<Set<String>>(emptySet())
+
+    val allEntities: StateFlow<List<FamilyDeviceEntity>> = database.familyDeviceDao().observeAll()
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val familyMembers: StateFlow<List<FamilyMemberUiModel>> = combine(
         database.familyDeviceDao().observeAll(),
@@ -109,10 +115,18 @@ class DashboardViewModel(private val database: OfflineMeshDatabase) : ViewModel(
 
     fun addFamilyDevice(id: String, name: String, phone: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            val allDevices = database.familyDeviceDao().getAll()
+            val existingIds = allDevices.map { it.deviceId }
+            val cleanId = if (id.isBlank()) {
+                DeviceIdGenerator.generateFromDisplayName(name, existingIds)
+            } else {
+                id.trim().uppercase()
+            }
+
             database.familyDeviceDao().insertOrUpdate(
                 FamilyDeviceEntity(
-                    deviceId = id.trim().uppercase(),
-                    displayName = name.trim(),
+                    deviceId = cleanId,
+                    displayName = name.trim().ifBlank { cleanId },
                     phoneNumber = SmsSender.sanitizePhoneNumber(phone),
                     isLocalDevice = false
                 )
@@ -122,9 +136,27 @@ class DashboardViewModel(private val database: OfflineMeshDatabase) : ViewModel(
 
     fun addScannedDevice(qrData: QrPairingData) {
         viewModelScope.launch(Dispatchers.IO) {
+            val allDevices = database.familyDeviceDao().getAll()
+            val localDev = allDevices.find { it.isLocalDevice }
+            val existingIds = allDevices.map { it.deviceId }
+
+            val rawDevId = qrData.deviceId.trim().uppercase()
+            // If the scanned QR has the same ID as local device, or an existing peer with a different phone number,
+            // resolve conflict so we never overwrite!
+            val safeId = if (rawDevId.equals(localDev?.deviceId, ignoreCase = true)) {
+                DeviceIdGenerator.generateFromDisplayName(qrData.displayName, existingIds)
+            } else {
+                val existingPeer = allDevices.find { it.deviceId.equals(rawDevId, ignoreCase = true) }
+                if (existingPeer != null && !PhoneNumberNormalizer.matches(existingPeer.phoneNumber, qrData.phoneNumber)) {
+                    DeviceIdGenerator.generateFromDisplayName(qrData.displayName, existingIds)
+                } else {
+                    rawDevId
+                }
+            }
+
             database.familyDeviceDao().insertOrUpdate(
                 FamilyDeviceEntity(
-                    deviceId = qrData.deviceId.trim().uppercase(),
+                    deviceId = safeId,
                     displayName = qrData.displayName.trim(),
                     phoneNumber = SmsSender.sanitizePhoneNumber(qrData.phoneNumber),
                     isLocalDevice = false

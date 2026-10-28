@@ -10,6 +10,7 @@ import android.util.Log
 import com.offlinetracker.data.local.FamilyDeviceEntity
 import com.offlinetracker.data.local.LocationLogEntity
 import com.offlinetracker.data.local.OfflineMeshDatabase
+import com.offlinetracker.protocol.DeviceIdGenerator
 import com.offlinetracker.protocol.MeshMessage
 import com.offlinetracker.protocol.MeshProtocolParser
 import com.offlinetracker.protocol.PhoneNumberNormalizer
@@ -79,16 +80,21 @@ class SmsTriggerReceiver : BroadcastReceiver() {
                                 it.deviceId == parsed.fromDeviceId || PhoneNumberNormalizer.matches(it.phoneNumber, rawSender)
                             }
                             if (existingSender == null) {
+                                val safeId = if (parsed.fromDeviceId.equals(localDevice.deviceId, ignoreCase = true)) {
+                                    DeviceIdGenerator.resolveConflict(parsed.fromDeviceId, allDevices.map { it.deviceId })
+                                } else {
+                                    parsed.fromDeviceId
+                                }
                                 db.familyDeviceDao().insertOrUpdate(
                                     FamilyDeviceEntity(
-                                        deviceId = parsed.fromDeviceId,
-                                        displayName = "Device ${parsed.fromDeviceId}",
+                                        deviceId = safeId,
+                                        displayName = "Device $safeId",
                                         phoneNumber = rawSender,
                                         isLocalDevice = false
                                     )
                                 )
-                                Log.d(TAG, "Auto-discovered new family device: ${parsed.fromDeviceId} ($rawSender)")
-                            } else if (existingSender.phoneNumber.isBlank()) {
+                                Log.d(TAG, "Auto-discovered new family device: $safeId ($rawSender)")
+                            } else if (!existingSender.isLocalDevice && existingSender.phoneNumber.isBlank()) {
                                 db.familyDeviceDao().insertOrUpdate(
                                     existingSender.copy(phoneNumber = rawSender)
                                 )
@@ -145,10 +151,15 @@ class SmsTriggerReceiver : BroadcastReceiver() {
                                 it.deviceId == parsed.fromDeviceId || PhoneNumberNormalizer.matches(it.phoneNumber, rawSender)
                             }
                             if (existingPeer == null) {
+                                val safeId = if (parsed.fromDeviceId.equals(localDevice.deviceId, ignoreCase = true)) {
+                                    DeviceIdGenerator.resolveConflict(parsed.fromDeviceId, allDevices.map { it.deviceId })
+                                } else {
+                                    parsed.fromDeviceId
+                                }
                                 db.familyDeviceDao().insertOrUpdate(
                                     FamilyDeviceEntity(
-                                        deviceId = parsed.fromDeviceId,
-                                        displayName = "Device ${parsed.fromDeviceId}",
+                                        deviceId = safeId,
+                                        displayName = "Device $safeId",
                                         phoneNumber = rawSender,
                                         isLocalDevice = false
                                     )

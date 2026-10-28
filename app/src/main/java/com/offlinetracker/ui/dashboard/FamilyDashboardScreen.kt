@@ -19,6 +19,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.offlinetracker.data.local.FamilyDeviceEntity
+import com.offlinetracker.protocol.DeviceIdGenerator
+import com.offlinetracker.protocol.PhoneNumberNormalizer
 import com.offlinetracker.protocol.QrPairingData
 import java.util.Locale
 
@@ -30,6 +33,7 @@ fun FamilyDashboardScreen(
 ) {
     val context = LocalContext.current
     val familyList by viewModel.familyMembers.collectAsState()
+    val allEntities by viewModel.allEntities.collectAsState()
     val localDevice by viewModel.localDevice.collectAsState()
     val familyId by viewModel.familyId.collectAsState()
     val authKey by viewModel.authKey.collectAsState()
@@ -120,6 +124,8 @@ fun FamilyDashboardScreen(
 
         if (showAddDialog) {
             AddDeviceDialog(
+                existingDevices = allEntities,
+                localDevice = localDevice,
                 onDismiss = { showAddDialog = false },
                 onManualConfirm = { id, name, phone ->
                     viewModel.addFamilyDevice(id, name, phone)
@@ -385,6 +391,8 @@ fun FamilyMemberCard(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddDeviceDialog(
+    existingDevices: List<FamilyDeviceEntity>,
+    localDevice: FamilyDeviceEntity?,
     onDismiss: () -> Unit,
     onManualConfirm: (id: String, name: String, phone: String) -> Unit,
     onQrScanned: (QrPairingData) -> Unit
@@ -393,6 +401,23 @@ fun AddDeviceDialog(
     var devId by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
+    var isDevIdManuallyEdited by remember { mutableStateOf(false) }
+
+    val existingIds = remember(existingDevices) { existingDevices.map { it.deviceId } }
+    val cleanDevId = devId.trim().uppercase(Locale.US)
+    val isLocalConflict = localDevice != null && cleanDevId.isNotBlank() && cleanDevId == localDevice.deviceId.uppercase(Locale.US)
+    val conflictingPeer = remember(cleanDevId, existingDevices) {
+        if (cleanDevId.isNotBlank()) {
+            existingDevices.find { !it.isLocalDevice && it.deviceId.uppercase(Locale.US) == cleanDevId }
+        } else null
+    }
+    val isDevIdConflict = isLocalConflict || conflictingPeer != null
+
+    val conflictingPhonePeer = remember(phone, existingDevices) {
+        if (phone.isNotBlank()) {
+            existingDevices.find { PhoneNumberNormalizer.matches(it.phoneNumber, phone) }
+        } else null
+    }
 
     if (selectedTab == 0) {
         // Full screen camera QR scanner modal
@@ -465,23 +490,116 @@ fun AddDeviceDialog(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(
-                        value = devId,
-                        onValueChange = { devId = it },
-                        label = { Text("Device ID (e.g. DEV_02)") },
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) }
-                    )
-                    OutlinedTextField(
                         value = name,
-                        onValueChange = { name = it },
-                        label = { Text("Member Name (e.g. Dad)") },
+                        onValueChange = {
+                            name = it
+                            if (!isDevIdManuallyEdited) {
+                                devId = DeviceIdGenerator.generateFromDisplayName(it, existingIds)
+                            }
+                        },
+                        label = { Text("Member Name (e.g. Dad, Mom, Sister)") },
+                        modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) }
                     )
+
+                    OutlinedTextField(
+                        value = devId,
+                        onValueChange = {
+                            devId = it
+                            isDevIdManuallyEdited = true
+                        },
+                        label = { Text("Device ID") },
+                        supportingText = {
+                            if (isDevIdConflict) {
+                                Text(
+                                    if (isLocalConflict) "Error: Matches this phone's own ID!"
+                                    else "Error: Already used by ${conflictingPeer?.displayName}!",
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            } else {
+                                Text("Auto-generated unique ID for mesh routing")
+                            }
+                        },
+                        isError = isDevIdConflict,
+                        trailingIcon = {
+                            IconButton(
+                                onClick = {
+                                    devId = DeviceIdGenerator.generateFromDisplayName(name.ifBlank { "MEMBER" }, existingIds)
+                                    isDevIdManuallyEdited = false
+                                }
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = "Regenerate unique ID")
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) }
+                    )
+
+                    // Error Warning Banner for Device ID Conflict
+                    if (isDevIdConflict) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (isLocalConflict) {
+                                        "Cannot use '$cleanDevId': This is already this phone's own ID. Please pick a different ID."
+                                    } else {
+                                        "Conflict: '$cleanDevId' is already registered for ${conflictingPeer?.displayName} (${conflictingPeer?.phoneNumber}). Saving would overwrite them! Tap the refresh button above to generate a unique ID."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                    }
+
+                    // Notice Banner for Duplicate Phone Number
+                    if (conflictingPhonePeer != null && !isDevIdConflict) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Notice: This phone number is already saved as '${conflictingPhonePeer.displayName}' (${conflictingPhonePeer.deviceId}).",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+                            }
+                        }
+                    }
+
                     OutlinedTextField(
                         value = phone,
                         onValueChange = { phone = it },
                         label = { Text("Phone Number") },
+                        modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) }
                     )
@@ -490,11 +608,11 @@ fun AddDeviceDialog(
             confirmButton = {
                 Button(
                     onClick = {
-                        if (devId.isNotBlank() && phone.isNotBlank()) {
-                            onManualConfirm(devId, name, phone)
+                        if (devId.isNotBlank() && phone.isNotBlank() && !isDevIdConflict) {
+                            onManualConfirm(devId, name.ifBlank { devId }, phone)
                         }
                     },
-                    enabled = devId.isNotBlank() && phone.isNotBlank()
+                    enabled = devId.isNotBlank() && phone.isNotBlank() && !isDevIdConflict
                 ) {
                     Text("Save Device")
                 }

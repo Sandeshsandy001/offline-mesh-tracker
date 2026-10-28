@@ -24,42 +24,41 @@ You do not need Android Studio or a computer to install this app. You can instal
 
 ---
 
-## 🚀 Quick Start Guide (Testing With 2 Phones)
+## 🚀 Quick Start Guide (Family Mesh Network)
 
-Because OMT is an offline peer-to-peer system that uses cellular SMS instead of an internet cloud server, tracking works between **two devices**:
+Because OMT is an offline peer-to-peer system that uses cellular SMS instead of an internet cloud server, any number of family devices can participate in the same mesh network:
 
 ```
-[Phone A: Requester] ──(1. SMS Request)──► [Phone B: Target]
-                                                │ (Grabs GPS)
-[Phone A: Requester] ◄─(2. SMS Response)─┘
- ↳ Displays Live Coordinates, Battery %, and Map Button!
+[Phone A: Me] ───────(SMS Request)──────► [Phone B: Mom] (Grabs GPS & Replies)
+      │
+      └──────────────(SMS Request)──────► [Phone C: Dad] (Grabs GPS & Replies)
+                                                │
+[Phone B: Mom] ◄─────(SMS Request)──────────────┘
 ```
 
-### Step 1: Install on Both Devices
-Install `app-debug.apk` on **Phone A** and **Phone B**.
+### Step 1: Install on All Family Devices
+Install `app-debug.apk` on **Phone A (You)**, **Phone B (Mom)**, **Phone C (Dad)**, etc.
 
-### Step 2: Configure Network Credentials (Must Match!)
-On **both** devices, enter the exact same network credentials:
-* **Family Group ID**: `FAM_01` (Must be identical on both)
-* **Secret Auth Key**: `SECRET_KEY_123` (Must be identical on both)
+### Step 2: Configure Network Credentials (Must Match Across Family!)
+On **every** family device, enter the exact same network credentials:
+* **Family Group ID**: `FAM_01` (Must be identical on all family phones)
+* **Secret Auth Key**: `SECRET_KEY_123` (Must be identical on all family phones)
 
-### Step 3: Assign Device IDs
-* On **Phone A**:
-  * **Device ID**: `DEV_01`
-  * **Name**: `Dad` (or `My Phone`)
-  * **Phone Number**: Enter Phone A's real SIM phone number.
-* On **Phone B**:
-  * **Device ID**: `DEV_02`
-  * **Name**: `Kid` (or `Traveler`)
-  * **Phone Number**: Enter Phone B's real SIM phone number.
+### Step 3: Assign Device Profiles (Auto-Generated Unique IDs)
+Enter each member's name and SIM phone number. Unique Device IDs are auto-generated from their names:
+* **Your Phone**: Name: `Me` $\rightarrow$ ID: `DEV_ME`, SIM: Your phone number
+* **Mom's Phone**: Name: `Mom` $\rightarrow$ ID: `DEV_MOM`, SIM: Mom's phone number
+* **Dad's Phone**: Name: `Dad` $\rightarrow$ ID: `DEV_DAD`, SIM: Dad's phone number
+* **Sister's Phone**: Name: `Sister` $\rightarrow$ ID: `DEV_SISTER`, SIM: Sister's phone number
 
-### Step 4: Add Peer Device to Dashboard
-* On **Phone A**: Tap **"+" (Add Device)** and add Phone B:
-  * ID: `DEV_02`, Name: `Kid`, Phone Number: Phone B's number.
-* Tap **"Locate"**:
-  * Phone A sends an encrypted location request SMS.
-  * Phone B receives the request in the background, resolves fresh GPS coordinates, and replies with its location SMS.
-  * Phone A's dashboard automatically displays the coordinates, battery %, and enables the **Google Maps** button!
+### Step 4: Add Family Members to Dashboard
+* On **Your Phone**: Tap **"+" (Add Member)**.
+  * Type Member Name: `Mom` (Device ID automatically suggests `DEV_MOM`).
+  * Enter Mom's SIM phone number and tap **Save Device**.
+  * Tap **"+"** again $\rightarrow$ Type Member Name: `Dad` (Device ID automatically suggests `DEV_DAD`).
+  * Enter Dad's SIM phone number and tap **Save Device**.
+* Both Mom and Dad appear as independent cards on your dashboard with live battery stats, coordinate logs, and Google Maps buttons!
+* Tap **"Locate"** on any member to request their coordinates in real time over SMS.
 
 ---
 

@@ -133,21 +133,27 @@ fun OnboardingScreen(
             Text("This Device Profile", fontWeight = FontWeight.Bold, fontSize = 16.sp)
 
             OutlinedTextField(
-                value = uiState.localDeviceId,
-                onValueChange = { viewModel.onLocalDeviceIdChange(it) },
-                label = { Text("Device ID (e.g. DEV_01)") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) }
-            )
-
-            OutlinedTextField(
                 value = uiState.localDisplayName,
                 onValueChange = { viewModel.onLocalDisplayNameChange(it) },
-                label = { Text("Device / User Name (e.g. My Phone)") },
+                label = { Text("Device / User Name (e.g. Dad, Mom, My Phone)") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) }
+            )
+
+            OutlinedTextField(
+                value = uiState.localDeviceId,
+                onValueChange = { viewModel.onLocalDeviceIdChange(it) },
+                label = { Text("Device ID") },
+                supportingText = { Text("Auto-generated unique ID for mesh routing") },
+                trailingIcon = {
+                    IconButton(onClick = { viewModel.regenerateDeviceId() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Regenerate ID")
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) }
             )
 
             OutlinedTextField(
